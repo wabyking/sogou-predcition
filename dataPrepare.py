@@ -15,11 +15,11 @@ from sklearn import metrics
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.svm import SVC
 from sklearn import cross_validation
-import pynlpir
+
 from sklearn.ensemble import RandomForestClassifier
 import requests
 import jieba
-pynlpir.open()
+
 
 conf = ConfigParser.ConfigParser()   
 conf.read("arg.cfg") 
