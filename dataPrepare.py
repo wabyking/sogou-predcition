@@ -14,7 +14,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer, HashingVectorizer, 
 from sklearn import metrics
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.svm import SVC
+from sklearn import cross_validation
 import pynlpir
+from sklearn.ensemble import RandomForestClassifier
+import requests
+import jieba
 pynlpir.open()
 
 conf = ConfigParser.ConfigParser()   
@@ -23,12 +27,18 @@ stopwords_path=conf.get("path","stopwords_path")
 stopwords={word.decode("utf-8") for word in open(stopwords_path).read().split()}
 
 def cut(sentence):
+
+	sentence=" ".join([item for item in sentence.split("\t") if "http" not in item ] )
+	# try:
+	# 	words= pynlpir.segment(sentence, pos_tagging=False)
+	# except:
 	try:
-		words= pynlpir.segment(sentence, pos_tagging=False)
+		words= jieba.cut(sentence)
 	except:
-		words= jieba.cut(str(sentence))
+		words=[]
 	
 	words=[word for word in words if word not in stopwords]
+	# print words
 	return words
 
 def getTest():
@@ -52,23 +62,25 @@ def getTrain():
 		for i,line in enumerate(f):
 			tokens=line.split("\t")
 			ID = tokens[0]
-			age= tokens[1]
-			gender=tokens[2]
-			education=tokens[3]
+			age= int(tokens[1])
+			gender=int(tokens[2])
+			education=int(tokens[3])
 			terms=tokens[4:]
 			record={"ID":ID,"age":age,"gender":gender,"education":education,"terms":"\t".join(terms)}
 			records.append(record)
 	return pd.DataFrame(records)
 			# print record
 
-def loadData(option="offline"):
+def loadData(option="offline" ,fresh=False,demo=False):
 	if option=="offline":
 		clearedpath=conf.get("temp","offline")
-		if os.path.exists(clearedpath):
+		if os.path.exists(clearedpath) and not fresh:
 			train,test=pickle.load(open(clearedpath,'r'))
 			return train,test
 		train,test=getTrainAndTest()
-		pickle.dump((train,test),open(clearedpath,"w"))	
+		pickle.dump((train,test),open(clearedpath,"w"))
+		if demo:
+			return train[:1000],test[:1000]	
 		return train,test
 	else:
 		clearedpath=conf.get("temp","online")
@@ -99,25 +111,32 @@ def getTrainAndTest(rate=0.7):
 	return train,test
 
 def main():
-	
-	
-	train,test=loadData(option="offline")
-	
+	train,test=loadData(option="offline",fresh=False,demo=False)  
 	fields=["age","gender","education"]
 
-	for field in fields:
-		test[field+"_p"]=predict(train, test,field)
-	print test
-	names=[field+"_p" for field in fields]
+	# enough={"age":[1,2,3,4],"gender":[1,2],"education":[3,4,5]}
+	if len(test)>=20000:
+		for field in fields:
+			if field=="gender":
+				train=train[train.gender!=0]
+			test[field+"_p"]=predict(train, test,field)
+		names=[field+"_p" for field in fields]
+		test[(["ID"]+names)].to_csv("submission.csv",header=False,index=False,encoding="gbk",sep=' ')
+	else:
+		predicts=[]
+		for field in fields:
+			# train=train[train[field].isin(enough[field])]
+			train=train[train[field]!=0]
+			predicts.append(predict(train, test,field))
+		print predicts,sum(predicts)/3
+		
+		
 
-	test[(["ID"]+names)].to_csv("submission.csv",header=False,index=False,encoding="gbk",sep=' ')
 def predict(train,test, field="gender"):
 	
 	nbc = Pipeline([
-		    ('vect', TfidfVectorizer(
-
-		    )),
-		    ('clf', MultinomialNB(alpha=0.01)),
+		    ('vect', TfidfVectorizer()),
+		    ('clf', BernoulliNB(alpha=0.3) ),   #BernoulliNB(alpha=0.3) ,max_features="sqrt"
 		])
 	nbc.fit(train["clearedtext"], train[field])    #训练我们的多项式模型贝叶斯分类器
 	predicted = nbc.predict(test["clearedtext"])
@@ -127,7 +146,7 @@ def predict(train,test, field="gender"):
 	for left , right in zip(predicted, test[field]):
 	      if left == right:
 	            count += 1
-	print count/len(predicted)
+	return count/len(predicted)
 	
 if __name__ == '__main__':
 	main()
